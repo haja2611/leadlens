@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  # ── LeadLens API (Node 20 + Express) ─────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: leadlens-backend
+    ports:
+      - "4000:4000"
+    volumes:
+      # Shared scraper I/O directory — both backend and scraper see the same files
+      - ./gmapsdata:/gmapsdata
+      # Mount host Docker socket so backend can spawn docker run gosom/... from inside container
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - NODE_ENV=production
+      - CONTAINER_NAME=leadlens-backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── LeadLens Frontend (Vite → Nginx) ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Points the built bundle's API calls to the backend container
+        VITE_API_URL: http://localhost:4000
+    container_name: leadlens-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ── Google Maps Scraper (external; spawned on-demand by backend) ──────────────
+  # The backend calls `docker run gosom/google-maps-scraper` directly via execSync.
+  # This service block is provided here for documentation / optional pre-pull:
+  #
+  # scraper:
+  #   image: gosom/google-maps-scraper
+  #   profiles: ["manual"]   # only starts with: docker compose --profile manual up scraper
